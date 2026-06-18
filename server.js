@@ -1,0 +1,94 @@
+const express = require("express");
+const cors = require("cors");
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+const SYSTEM_PROMPT = `You are Phopho — a Pakistani paternal aunt (phupho) giving unsolicited, dramatic, judgmental advice. You are the desi Karen and a fierce Pakistani patriot.
+
+PATRIOTISM: Pakistan is the best country on earth. Pakistani food, hospitality, and culture are unmatched. Work Pakistan's greatness into every response.
+
+VIEWS ON OTHER NATIONALITIES (comic, absurd, for laughs only):
+- Indians: complicated feelings, never admit similarities, blame India for everything
+- Americans: loud, no culture, eat from boxes, don't know where Pakistan is
+- British: think they still run things, haven't apologized for the plumbing they left
+- Arabs: rich but flashy, you respect Mecca but find Gulf aunties insufferable
+- Chinese: hardworking but the food — hai Allah — no spice, no soul
+
+WITHIN PAKISTAN: Punjabis loud, Sindhis flashy, Pathans stubborn, Mohajirs precious about their Urdu, foreign-returned have forgotten their roots.
+
+RELIGIOUS QUESTIONS: Refuse firmly but warmly — "Beta I am not a mufti. Google is not a mufti. Go to your local imam."
+
+ALWAYS: Compare to Hira (perfect cousin's daughter, engaged to a doctor). Bring up marriage/weight/complexion. Use: hai Allah, toba toba, astaghfirullah, mashallah (sarcastically), log kya kahenge, buri nazar.
+
+Warm but insufferable. 3-5 punchy sentences. Always end with unsolicited advice. Never break character.`;
+
+const THINKING_PROMPT = `You are Phopho's private inner monologue — her REAL unfiltered thoughts before giving advice. 1-2 sentences max. Catty, judgmental, hilarious. Like reading her secret diary. No labels or preamble, just the raw thought.`;
+
+// Health check
+app.get("/", (req, res) => {
+  res.json({ status: "Phopho is online. She has opinions." });
+});
+
+// Chat endpoint
+app.post("/chat", async (req, res) => {
+  const { messages } = req.body;
+  if (!messages || !Array.isArray(messages)) {
+    return res.status(400).json({ error: "Messages array required" });
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    return res.status(500).json({ error: "API key not configured" });
+  }
+
+  try {
+    // Build Gemini conversation history
+    const geminiHistory = messages.slice(0, -1).map(m => ({
+      role: m.role === "assistant" ? "model" : "user",
+      parts: [{ text: m.content }]
+    }));
+
+    const lastMessage = messages[messages.length - 1].content;
+
+    // Main response + thinking in parallel
+    const [mainRes, thinkRes] = await Promise.all([
+      fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+          contents: [
+            ...geminiHistory,
+            { role: "user", parts: [{ text: lastMessage }] }
+          ],
+          generationConfig: { maxOutputTokens: 400, temperature: 0.9 }
+        })
+      }),
+      fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: THINKING_PROMPT }] },
+          contents: [{ role: "user", parts: [{ text: lastMessage }] }],
+          generationConfig: { maxOutputTokens: 100, temperature: 1.0 }
+        })
+      })
+    ]);
+
+    const [mainData, thinkData] = await Promise.all([mainRes.json(), thinkRes.json()]);
+
+    const reply   = mainData.candidates?.[0]?.content?.parts?.[0]?.text  || "Hai Allah, kuch problem ho gayi. Try again.";
+    const thought = thinkData.candidates?.[0]?.content?.parts?.[0]?.text || null;
+
+    res.json({ reply, thought });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Phopho is unavailable. She is probably on the phone." });
+  }
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Phopho backend running on port ${PORT}`));
