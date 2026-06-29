@@ -1,7 +1,7 @@
 const express = require("express");
 const cors = require("cors");
-
 const app = express();
+
 app.use(cors());
 app.use(express.json());
 
@@ -34,6 +34,7 @@ app.get("/", (req, res) => {
 // Chat endpoint
 app.post("/chat", async (req, res) => {
   const { messages } = req.body;
+
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: "Messages array required" });
   }
@@ -44,7 +45,6 @@ app.post("/chat", async (req, res) => {
   }
 
   try {
-    // Build Gemini conversation history
     const geminiHistory = messages.slice(0, -1).map(m => ({
       role: m.role === "assistant" ? "model" : "user",
       parts: [{ text: m.content }]
@@ -52,7 +52,6 @@ app.post("/chat", async (req, res) => {
 
     const lastMessage = messages[messages.length - 1].content;
 
-    // Main response + thinking in parallel
     const [mainRes, thinkRes] = await Promise.all([
       fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
         method: "POST",
@@ -72,20 +71,27 @@ app.post("/chat", async (req, res) => {
         body: JSON.stringify({
           system_instruction: { parts: [{ text: THINKING_PROMPT }] },
           contents: [{ role: "user", parts: [{ text: lastMessage }] }],
-          generationConfig: { maxOutputTokens: 100, temperature: 1.0 }
+          generationConfig: { maxOutputTokens: 200, temperature: 1.0 }
         })
       })
     ]);
 
     const [mainData, thinkData] = await Promise.all([mainRes.json(), thinkRes.json()]);
 
-    const reply   = mainData.candidates?.[0]?.content?.parts?.[0]?.text  || "Hai Allah, kuch problem ho gayi. Try again.";
+    // Log full responses for debugging
+    console.log("Gemini main response:", JSON.stringify(mainData));
+    console.log("Gemini think response:", JSON.stringify(thinkData));
+
+    const reply = mainData.candidates?.[0]?.content?.parts?.[0]?.text
+      || mainData.error?.message
+      || "Hai Allah, kuch problem ho gayi. Try again.";
+
     const thought = thinkData.candidates?.[0]?.content?.parts?.[0]?.text || null;
 
     res.json({ reply, thought });
 
   } catch (err) {
-    console.error(err);
+    console.error("Phopho backend error:", err);
     res.status(500).json({ error: "Phopho is unavailable. She is probably on the phone." });
   }
 });
