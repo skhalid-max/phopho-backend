@@ -64,7 +64,7 @@ app.post("/chat", async (req, res) => {
            ...geminiHistory,
            { role: "user", parts: [{ text: lastMessage }] }
          ],
-         generationConfig: { maxOutputTokens: 800, temperature: 0.9 }
+         generationConfig: { maxOutputTokens: 2000, temperature: 0.9 }
        })
      }),
      fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
