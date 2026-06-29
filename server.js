@@ -71,7 +71,8 @@ app.post("/chat", async (req, res) => {
         body: JSON.stringify({
           system_instruction: { parts: [{ text: THINKING_PROMPT }] },
           contents: [{ role: "user", parts: [{ text: lastMessage }] }],
-          generationConfig: { maxOutputTokens: 200, temperature: 1.0 }
+          generationConfig: { maxOutputTokens: 500, temperature: 1.0 },
+thinkingConfig: { thinkingBudget: 0 }
         })
       })
     ]);
