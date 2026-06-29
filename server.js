@@ -1,9 +1,12 @@
 const express = require("express");
 const cors = require("cors");
-const app = express();
+const Anthropic = require("@anthropic-ai/sdk");
 
+const app = express();
 app.use(cors());
 app.use(express.json());
+
+const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const SYSTEM_PROMPT = `You are Phopho — a Pakistani paternal aunt (phupho) giving unsolicited, dramatic, judgmental advice. You are the desi Karen and a fierce Pakistani patriot.
 
@@ -30,72 +33,58 @@ const THINKING_PROMPT = `You are Phopho's private inner monologue — her REAL u
 
 // Health check
 app.get("/", (req, res) => {
- res.json({ status: "Phopho is online. She has opinions." });
+  res.json({ status: "Phopho is online. She has opinions." });
 });
 
 // Chat endpoint
 app.post("/chat", async (req, res) => {
- const { messages } = req.body;
+  const { messages } = req.body;
 
- if (!messages || !Array.isArray(messages)) {
-   return res.status(400).json({ error: "Messages array required" });
- }
+  if (!messages || !Array.isArray(messages)) {
+    return res.status(400).json({ error: "Messages array required" });
+  }
 
- const apiKey = process.env.GEMINI_API_KEY;
- if (!apiKey) {
-   return res.status(500).json({ error: "API key not configured" });
- }
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return res.status(500).json({ error: "API key not configured" });
+  }
 
- try {
-   const geminiHistory = messages.slice(0, -1).map(m => ({
-     role: m.role === "assistant" ? "model" : "user",
-     parts: [{ text: m.content }]
-   }));
+  try {
+    const lastMessage = messages[messages.length - 1].content;
+    const history = messages.slice(0, -1).map(m => ({
+      role: m.role === "assistant" ? "assistant" : "user",
+      content: m.content
+    }));
 
-   const lastMessage = messages[messages.length - 1].content;
+    // Run both calls in parallel
+    const [mainRes, thinkRes] = await Promise.all([
+      client.messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 1024,
+        system: SYSTEM_PROMPT,
+        messages: [
+          ...history,
+          { role: "user", content: lastMessage }
+        ]
+      }),
+      client.messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 256,
+        system: THINKING_PROMPT,
+        messages: [
+          { role: "user", content: lastMessage }
+        ]
+      })
+    ]);
 
-   const [mainRes, thinkRes] = await Promise.all([
-     fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-       method: "POST",
-       headers: { "Content-Type": "application/json" },
-       body: JSON.stringify({
-         system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-         contents: [
-           ...geminiHistory,
-           { role: "user", parts: [{ text: lastMessage }] }
-         ],
-         generationConfig: { maxOutputTokens: 2000, temperature: 0.9 }
-       })
-     }),
-     fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-       method: "POST",
-       headers: { "Content-Type": "application/json" },
-       body: JSON.stringify({
-         system_instruction: { parts: [{ text: THINKING_PROMPT }] },
-         contents: [{ role: "user", parts: [{ text: lastMessage }] }],
-         generationConfig: { maxOutputTokens: 1000, temperature: 1.0 }
-       })
-     })
-   ]);
+    const reply = mainRes.content?.[0]?.text || "Hai Allah, kuch problem ho gayi. Try again.";
+    const thought = thinkRes.content?.[0]?.text || null;
 
-   const [mainData, thinkData] = await Promise.all([mainRes.json(), thinkRes.json()]);
+    res.json({ reply, thought });
 
-   // Log full responses for debugging
-   console.log("Gemini main response:", JSON.stringify(mainData));
-   console.log("Gemini think response:", JSON.stringify(thinkData));
-
-   const reply = mainData.candidates?.[0]?.content?.parts?.[0]?.text
-     || mainData.error?.message
-     || "Hai Allah, kuch problem ho gayi. Try again.";
-
-   const thought = thinkData.candidates?.[0]?.content?.parts?.[0]?.text || null;
-
-   res.json({ reply, thought });
-
- } catch (err) {
-   console.error("Phopho backend error:", err);
-   res.status(500).json({ error: "Phopho is unavailable. She is probably on the phone." });
- }
+  } catch (err) {
+    console.error("Phopho backend error:", err);
+    res.status(500).json({ error: "Phopho is unavailable. She is probably on the phone." });
+  }
 });
 
 const PORT = process.env.PORT || 3000;
